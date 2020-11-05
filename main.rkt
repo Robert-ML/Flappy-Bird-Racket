@@ -1,0 +1,580 @@
+#lang racket/gui
+;Ignorați următoarele linii de cod. Conțin import-uri și export-uri necesare checker-ului.
+
+(require 2htdp/image)
+(require 2htdp/universe)
+(require lang/posn)
+
+(require "random.rkt")
+(require "abilities.rkt")
+(require "constants.rkt")
+;---------------------------------------checker_exports------------------------------------------------
+(provide next-state)
+(provide next-state-bird)
+(provide next-state-bird-onspace)
+(provide change)
+
+(provide get-pipes)
+(provide get-pipe-x)
+(provide next-state-pipes)
+(provide add-more-pipes)
+(provide clean-pipes)
+(provide move-pipes)
+
+(provide invalid-state?)
+(provide check-ground-collision)
+(provide check-pipe-collisions)
+
+(provide draw-frame)
+
+(provide get-initial-state)
+(provide get-bird)
+(provide get-bird-y)
+(provide get-bird-v-y)
+
+; pipe
+(provide get-pipes)
+(provide get-pipe-x)
+
+; score25
+(provide get-score)
+
+(provide get-abilities)
+(provide get-abilities-visible)
+(provide get-abilities-active)
+; variables
+(provide get-variables)
+(provide get-variables-gravity)
+(provide get-variables-momentum)
+(provide get-variables-scroll-speed)
+
+;---------------------------------------checker_exports------------------------------------------------
+; Checker-ul contine un numar de teste, fiecare cu numele sau. In acest fisier veti gasi comentarii
+; care incep cu TODO %nume_test, unde trebuie sa modificati sau sa implementati o functie, pentru
+; a trece testul %nume_test.
+;
+;Initial state
+; Primul pas pe care trebuie sa il facem este sa cream starea initiala a jocului.
+; Aceasta va fi salvata in (get-initial-state), si trebuie sa incapsuleze toate informatiile
+; necesare jocului, si anume: informatii despre pasare, despre pipes si despre powerups.
+; Recomandam ca in pasare, sa retineti, printre altele, informatii despre y-ul curent
+; si viteza pe y
+; Pe parcursul temei, in state, salvati coordonatele colturilor din stanga sus ale obiectelor.
+; Aceasta va face mai usoara atat logica miscarii obiectelor, cat si testarea cerintelor.
+; Toate coordonatele oferite in comentarii sau in fisierul constants.rkt, se refera la
+; coltul din stanga sus ale obiectelor!
+;Inițial state
+; Primul pas pe care trebuie să îl facem este să creăm starea inițială a jocului.
+; Aceasta va fi salvată în (get-initial-state), și trebuie să incapsuleze toate informațiile
+; necesare jocului, și anume: informații despre pasăre, despre pipes și, pentru bonus,
+; despre powerups și despre variabilele de mediu.
+; Recomandăm ca în pasăre, să rețineți, printre altele, informații despre y-ul curent
+; și viteză pe y.
+; Pe parcursul temei, în state, salvați coordonatele colțurilor din stânga sus ale obiectelor.
+; Aceasta va face mai ușoară atât logică mișcării obiectelor, cât și testarea cerințelor.
+; Toate coordonatele oferite în comentarii sau în fișierul variables.rkt se referă la
+; colțul din stânga sus ale obiectelor!
+
+;TODO 1
+; După ce definiți structurile lui (get-initial-state) și a păsării, introduceți în prima
+; pe cea din urmă. Colțul din stânga sus a păsării se va află inițial la:
+;    y = bird-inițial-y
+; și x = bird-x.
+; (get-initial-state) va fi o funcție care va returna starea inițială a jocului.
+
+;TODO 8
+; În starea jocului, trebuie să păstrăm informații despre pipes. Pe parcursul jocului,
+; pipe-urile se vor schimba, unele vor fi șterse și vor fi adăugate altele.
+; După ce definiți structura pentru pipe și pentru mulțimea de pipes din stare,
+; adăugați primul pipe în starea jocului. Acesta se va află inițial în afară ecranului.
+; Celelalte pipe-uri vor fi adăugate ulterior, poziționându-le după acest prim pipe.
+; Atenție! Fiecare pipe este format din 2 părți, cea superioară și cea inferioară,
+; acestea fiind despărțite de un gap de înălțime pipe-self-gap.
+; Colțul din stânga sus al gap-ului dintre componentele primului pipe se va afla inițial la:
+;    y = (+ added-number (random random-threshold)), pentru a da un element de noroc jocului,
+; și x = scene-width,
+; pentru a-l forța să nu fie inițial pe ecran.
+; Atenție! Recomandăm să păstrați în stare colțul din stânga sus al chenarului lipsa
+; dintre cele 2 pipe-uri!
+
+;TODO 16
+; Vrem o modalitate de a păstra scorul jocului. După ce definiți structura
+; acestuia, adăugați scorul inițial, adică 0, în starea inițială a jocului.
+; Atenție get-initial-state trebuie sa fie o funcție
+; și trebuie apelată în restul codului.
+(define-struct bird_pos (x y vy bird) #:transparent)
+(define-struct pipe_gap (x y) #:transparent)
+(define-struct state (bird_pos pipes score speed reprezentare_intermediara) #:transparent)
+
+(define (get-initial-state)
+  (state [bird_pos bird-x bird-initial-y 0 bird]
+         [list (pipe_gap scene-width (+ added-number (random random-threshold)))]
+         0
+         initial-scroll-speed
+         (reprezentare_intermediara '() '())))
+
+;TODO 2
+; După aceasta, implementați un getter care extrage din structura voastră
+; pasărea, și un al doilea getter care extrage din structura pasăre
+; y-ul curent pe care se află această.
+(define (get-bird _state)
+  (if (state? _state) (state-bird_pos _state) ;; programare defensiva :) (si ajuta la debugging mai mult)
+      "EROARE (get-bird): nu este structura state"))
+
+(define (get-bird-y _bird)
+  (if (bird_pos? _bird) (bird_pos-y _bird)
+      "EROARE (get-bird-y): nu este structura bird_pos"))
+
+;TODO 3
+; Trebuie să implementăm logică gravitației. next-state-bird va primi drept
+; parametri o structură de tip pasăre, și gravitația(un număr real). Aceasta va adaugă
+; pozitiei pe y a păsării viteza acesteia pe y, si va adaugă vitezei pe y a păsării,
+; gravitația.
+(define (next-state-bird _bird gravity)
+  (if (bird_pos? _bird) (struct-copy bird_pos _bird
+                                     [y (let ([let_y (+ (get-bird-y _bird) (get-bird-v-y _bird))])
+                                        (if (< let_y 0) 0
+                                            let_y))] ;; pentru a scapa de bug-ul cand flappy iese prin tavan (bug ce in demo este :) )
+                                     [vy (+ gravity (get-bird-v-y _bird))])
+       "EROARE (next-state-bird): nu este structura bird_pos"))
+
+;TODO 4
+; După aceasta, implementati un getter care extrage din structura voastră
+; viteza pe y a păsării.
+(define (get-bird-v-y _bird)
+  (if (bird_pos? _bird) (bird_pos-vy _bird)
+      "EROARE (get-bird-v-y): nu este structura bird_pos"))
+
+;TODO 6
+; Dorim să existe un mod prin care să imprimăm păsării un impuls.
+; Definiți funcția next-state-bird-onspace care va primi drept parametri
+; o structură de tip pasăre, momentum(un număr real), și va schimba viteza
+; pe y a păsării cu -momentum.
+(define (next-state-bird-onspace bird momentum)
+  (if (bird_pos? bird) (struct-copy bird_pos bird [vy (* -1 momentum)])
+      "EROARE (next-state-bird-onspace): nu este structura bird_pos"))
+
+; Change
+; Change va fi responsabil de input-ul de la tastatură al jocului.
+;TODO 7
+; Acesta va primi drept parametri o structură de tip stare, și tasta pe
+; care am apăsat-o. Aceasta va imprimă păsării momentum-ul, apelând
+; funcția next-state-bird-onspace. Pentru orice altă tasta, starea rămâne aceeași.
+(define (change current-state pressed-key)
+  (if (not (state? current-state)) "EROARE (change): nu este structura state"
+      (cond [(key=? pressed-key " ") (struct-copy state current-state
+                                                      [bird_pos (next-state-bird-onspace (get-bird current-state) initial-momentum)])]
+            [else current-state])))
+
+;TODO 9
+; După ce ați definit structurile pentru mulțimea de pipes și pentru un singur pipe,
+; implementați getterul get-pipes, care va extrage din starea jocului mulțimea de pipes,
+; sub formă de lista.
+
+;; field-ul pipes din structura mea state este deja o lista
+(define (get-pipes _state)
+  (if (state? _state) (state-pipes _state)
+      "EROARE (get-pipes): nu este structura state"))
+
+;TODO 10
+; Implementați get-pipe-x ce va extrage dintr-o singură structura de tip pipe, x-ul acesteia.
+(define(get-pipe-x _pipe)
+  (if (pipe_gap? _pipe) (pipe_gap-x _pipe)
+      "EROARE (get-pipe-x): nu este structura pipe"))
+
+;TODO 11
+; Trebuie să implementăm logica prin care se mișcă pipes.
+; Funcția move-pipes va primi drept parametri mulțimea pipe-urilor din stare
+; și scroll-speed(un număr real). Aceasta va scădea din x-ul fiecărui pipe
+; scroll-speed-ul dat.
+(define (move-pipes _pipes scroll-speed)
+  (map (λ (this_pipe) (struct-copy pipe_gap this_pipe [x (- (get-pipe-x this_pipe) scroll-speed)])) _pipes))
+
+;TODO 12
+; Vom implementa logica prin care pipe-urile vor fi șterse din stare. În momentul
+; în care colțul din DREAPTA sus al unui pipe nu se mai află pe ecran, acesta trebuie
+; șters.
+; Funcția va primi drept parametru mulțimea pipe-urilor din stare.
+;
+; Hint: cunoaștem lățimea unui pipe, pipe-width
+(define (clean-pipes _pipes)
+  (filter (λ (this_pipe) (< 0 (+ pipe-width (get-pipe-x this_pipe)))) _pipes))
+
+
+;TODO 13
+; Vrem să avem un sursa continuă de pipe-uri.
+; Implementati funcția add-more-pipes, care va primi drept parametru mulțimea pipe-urilor
+; din stare și, dacă avem mai puțin de no-pipes pipe-uri, mai adăugăm una la mulțime,
+; având x-ul egal cu pipe-width + pipe-gap + x-ul celui mai îndepărtat pipe, în raport
+; cu pasărea.
+
+;; as face un stream de pipe-uri ca sa ma flexez, dar pare inutil aici pentru ca trebuie sa le tinem minte si sa umblam prin ele
+(define (add-more-pipes _pipes)
+  (if (>= (length _pipes) no-pipes) _pipes
+      (reverse (let ([r_pipes (reverse _pipes)])
+                 (cons (pipe_gap (+ (pipe_gap-x (car r_pipes)) pipe-width pipe-gap) ;; x-ul pipe-ului
+                                 (+ added-number (random random-threshold))) ;; y-ul gap-ului din pipe
+                       r_pipes)))
+      ) ;; end if
+  )
+
+;TODO 14
+; Vrem ca toate funcțiile implementate anterior legate de pipes să fie apelate
+; de către next-state-pipes.
+; Aceasta va primi drept parametri mulțimea pipe-urilor și scroll-speed-ul,
+; și va apela cele trei funcții implementate anterior, în această ordine:
+; move-pipes, urmat de clean-pipes, urmat de add-more pipes.
+(define (next-state-pipes _pipes scroll-speed)
+  (add-more-pipes (clean-pipes (move-pipes _pipes scroll-speed))))
+
+;TODO 17
+; Creați un getter ce va extrage scorul din starea jocului.
+(define (get-score _state)
+  (if (state? _state) (state-score _state)
+      "EROARE (get-score): nu este structura state"))
+
+;TODO 19
+; Vrem să creăm logica coliziunii cu pământul.
+; Implementati check-ground-collision, care va primi drept parametru
+; o structura de tip pasăre, și returnează true dacă aceasta are coliziune
+; cu pământul.
+;
+; Hint: știm înălțimea păsării, bird-height, și y-ul pământului, ground-y.
+; Coliziunea ar presupune ca un colț inferior al păsării să aibă y-ul
+; mai mare sau egal cu cel al pământului.
+(define (check-ground-collision _bird)
+ (if (bird_pos? _bird)
+     (if (>= (+ (get-bird-y _bird) bird-height) ground-y)
+         #t
+         #f)
+     "EROARE (check-ground-collision): nu este structura bird_pos"))
+
+; invalid-state?
+; invalid-state? îi va spune lui big-bang dacă starea curentă mai este valida,
+; sau nu. Aceasta va fi validă atât timp cât nu avem coliziuni cu pământul
+; sau cu pipes.
+; Aceasta va primi ca parametru starea jocului.
+
+;TODO 20
+; Vrem să integrăm verificarea coliziunii cu pământul în invalid-state?.
+
+;TODO 22
+; Odată creată logică coliziunilor dintre pasăre și pipes, vrem să integrăm
+; funcția nou implementată în invalid-state?.
+(define (invalid-state? _state)
+  (or (check-ground-collision (get-bird _state)) (check-pipe-collisions (get-bird _state) (get-pipes _state))))
+
+;TODO 21
+; Odată ce am creat pasărea, pipe-urile, scor-ul și coliziunea cu pământul,
+; următorul pas este verificarea coliziunii dintre pasăre și pipes.
+; Implementati funcția check-pipe-collisions care va primi drept parametri
+; o structură de tip pasăre, mulțimea de pipes din stare, și va returna
+; true dacă există coliziuni, și false în caz contrar. Reiterând,
+; fiecare pipe este format din 2 părți, cea superioară și cea inferioară,
+; acestea fiind despărțite de un gap de înălțime pipe-self-gap. Pot există
+; coliziuni doar între pasăre și cele două părți. Dacă pasărea se află în
+; chenarul lipsă, nu există coliziune.
+;
+; Hint: Vă puteți folosi de check-collision-rectangle, care va primi drept parametri
+; colțul din stânga sus și cel din dreapta jos ale celor două dreptunghiuri
+; pe care vrem să verificăm coliziunea.
+
+;; as lua primele 3 pipe-uri din lista de _pipes, dar nu stiu cat de des este apelat "next-state-pipes" pentru a curata pipe-urile trecute
+;; asa ca am sa fac o functionala care veridica toate cele 6 pipe-uri desi este dublu de ineficient
+
+;; bx1 -> bird coordonata x coltul din stanga sus a ecranului (1)
+;; by2 -> bird coordonata y coltul din dreapta jos a ecranului (2)
+;; ux1 -> pipe-ul de sus (u) coordonata x din stanga sus a ecranului (1)
+;; dx1 -> pipe-ul de jos (u) coordonata x din stanga sus a ecranului (1)
+(define (check-pipe-collisions _bird _pipes)
+  (not (null? (filter {λ (this_pipe)
+                   (let* ([bx1 (bird_pos-x _bird)] [by1 (get-bird-y _bird)] [bx2 (+ bx1 bird-width)] [by2 (+ by1 bird-height)])
+                     ;; acum ne construim pipe-urile din gaps :)
+                     ;; pipe-ul de sus (puteam sa fac mai putine operatii dar nu mai erau ordonate asa frumos coordonatele
+                     (let* ([ux1 (get-pipe-x this_pipe)]
+                            [uy1 0]
+                            [ux2 (+ ux1 pipe-width)]
+                            [uy2 (pipe_gap-y this_pipe)])
+                       
+                       ;; pipe-ul de jos
+                       (let* ([dx1 ux1]
+                              [dy1 (+ uy2 pipe-self-gap)]
+                              [dx2 ux2]
+                              [dy2 scene-height])
+                         
+                         (or (check-collision-rectangles (make-posn bx1 by1) (make-posn bx2 by2) (make-posn ux1 uy1) (make-posn ux2 uy2))
+                             (check-collision-rectangles (make-posn bx1 by1) (make-posn bx2 by2) (make-posn dx1 dy1) (make-posn dx2 dy2))
+                             ) ;; final or
+                         
+                         ) ;; final al treilea let* : coordonate pipe de jos
+                       ) ;; final al doilea let* : coordonate pipe de sus
+                     ) ;; final prim let* : coordonate pasare
+                   } ;; final λ
+                 _pipes))))
+
+;; mda... aparent exista o structura (posn) care tinea coordonate... too late now :)
+(define (check-collision-rectangles A1 A2 B1 B2)
+  (match-let ([(posn AX1 AY1) A1]
+              [(posn AX2 AY2) A2]
+              [(posn BX1 BY1) B1]
+              [(posn BX2 BY2) B2])
+    (and (< AX1 BX2) (> AX2 BX1) (< AY1 BY2) (> AY2 BY1))))
+
+;Next-state
+; Next-state va fi apelat de big-bang la fiecare cadru, pentru a crea efectul de
+; animație. Acesta va primi ca parametru o structură de tip stare, și va întoarce
+; starea corespunzătoare următorului cadru.
+
+;TODO 5
+; Trebuie să integrăm funcția implementată anterior, și anume next-state-bird,
+; în next-state.
+
+;TODO 15
+; Vrem să implementăm logică legată de mișcarea, ștergerea și adăugarea pipe-urilor
+; în next-state. Acesta va apela next-state-pipes pe pipe-urile din starea curentă.
+
+;TODO 18
+; Vrem ca next-state să incrementeze scorul cu 0.1 la fiecare cadru.
+(define (next-state _state)
+  (if (state? _state) (struct-copy state _state
+                                   [bird_pos (next-state-bird (get-bird _state) initial-gravity)]
+                                   [pipes (next-state-pipes (get-pipes _state) (state-speed _state))]
+                                   [score (+ 0.1 (get-score _state))]
+                                   [speed (next-variables initial-scroll-speed (get-abilities _state))]
+                                   [reprezentare_intermediara (next-abilities (get-abilities _state)
+                                                                              (get-bird _state)
+                                                                              (state-speed _state))]
+                                   )
+      "EROARE (next-state): nu este structura state"))
+
+; draw-frame
+; draw-frame va fi apelat de big-bang dupa fiecare apel la next-state, pentru a afisa cadrul curent.
+;TODO 23
+; Fiecare cadru va fi desenat in urmatorul mod:
+; bird peste ground, peste scor, peste pipes, peste empty-scene.
+;
+; Hint: score-to-image primeste un numar real si intoarce scor-ul sub forma de imagine;
+; Scor-ul îl puteți plasa direct la coordonatele date, fără a mai face translatiile menționate mai jos.
+; Noi tinem minte coltul din stanga sus al imaginii, insa, la suprapunerea unei imagini A peste o alta imagine,
+; coordonatele unde plasam imaginea A reprezinta centrul acesteia. Trebuie facute translatiile de la coltul din stanga
+; sus la centrul imaginilor.
+; Variabile folosite in aceasta functie:
+; bird -> bird-width si bird-height
+; ground -> ground-y si ground-height, acesta va acoperi intreaga latime a ecranului
+; scor -> text-x si text-y
+; pipes -> pipe-width si pipe-height
+(define bird (rectangle bird-width bird-height  "solid" "yellow"))
+(define ground (rectangle scene-width ground-height "solid" "brown"))
+;;(define initial-scene (empty-scene scene-width scene-height))
+(define initial-scene (rectangle scene-width scene-height "solid" "white"))
+(define-struct pipe_image (x y image) #:transparent) ;; un pipe o sa fie de fapt 3 dreptunghiuri unul peste altul
+
+(define text-family (list "Gill Sans" 'swiss 'normal 'bold #f))
+(define (score-to-image x)
+(if SHOW_SCORE
+	(apply text/font (~v (round x)) 24 "indigo" text-family)
+	empty-image))
+
+(define (draw-frame _state)
+
+  (place-image bird (+ bird-x (quotient bird-width 2)) (+ (quotient bird-height 2) (get-bird-y (get-bird _state)))
+               (place-image ground (/ scene-width 2) (+ ground-y (/ ground-height 2))
+                            (place-active-abilities (get-abilities _state)
+                                                    (place-image (score-to-image (get-score _state)) text-x text-y
+                                                                 (place-pipes (get-pipes _state)
+                                                                              (place-visible-abilities (get-abilities _state)
+                                                                                                       initial-scene)))))))
+
+
+; Folosind `place-image/place-images` va poziționa pipe-urile pe scenă.
+(define (place-pipes _pipes _scene)
+	(foldl (λ (pipe build_scene) ;; again, aplicam pe toate pipe-urile pt ca nu stiu cat de des sunt construite si distruse pipe-urile
+                 (let ([built_image (construct_pipe_image pipe)])
+                   (place-image (pipe_image-image built_image)
+                                ( + (pipe_image-x built_image) (/ pipe-width 2))
+                                (pipe_image-y built_image)
+                                build_scene)
+                 )) _scene _pipes))
+
+(define (construct_pipe_image _pipe)
+  (if (> (- scene-height (pipe_gap-y _pipe) pipe-self-gap) 0) 
+      {pipe_image (get-pipe-x _pipe)
+                  (/ scene-height 2)
+                  (above (rectangle pipe-width (pipe_gap-y _pipe) "solid" "green")
+                         (rectangle pipe-width pipe-self-gap 0 "white")
+                         (rectangle pipe-width (- scene-height (pipe_gap-y _pipe) pipe-self-gap) "solid" "green"))}
+      {pipe_image (get-pipe-x _pipe)
+                  (/ scene-height 2)
+                  (above (rectangle pipe-width (pipe_gap-y _pipe) "solid" "green")
+                         (rectangle pipe-width pipe-self-gap 0 "white")
+                         (rectangle pipe-width 0 "solid" "green"))}
+      ))
+
+; Bonus
+; Completați abilities.rkt mai întâi, aceste funcții căt, apoi legați
+; această funcționalitate la jocul inițial.
+
+
+; Abilitatea care va accelera timpul va dura 10 de secunde, va avea imaginea (hourglass "tomato")
+; va avea inițial poziția null si va modifica scrolls-speed dupa formulă
+; scroll-speed = scroll-speed + 1
+(define fast-ability (ability (hourglass "tomato") 30 null (λ (x) (add1 x))))
+;;(define fast-ability (ability (hourglass "mediumseagreen") 10 null (λ (x) (add1 x))))
+;; stiu ca puteam lasa doar add1 ca oricum e o functie lambda, dar arata mai misto asa sincer :)
+
+; Abilitatea care va încetini timpul va dura 30 de secunde, va avea imaginea (hourglass "mediumseagreen")
+; va avea inițial poziția null si va modifica scrolls-speed dupa formulă
+; scroll-speed = max(5, scroll-speed - 1)
+(define slow-ability (ability (hourglass "mediumseagreen") 10 null (λ (x) (max 5 (sub1 x)))))
+;;(define slow-ability (ability (hourglass "tomato") 30 null (λ (x) (max 5 (sub1 x)))))
+
+
+  ;;(λ(_state _ability) (struct-copy state _state
+  ;;                                           [speed (sub1 (state-speed _state))]
+  ;;                                           [ability_on (cons _ability (state-ability_on _state))]
+  ;;                                           )))
+
+; lista cu toate abilităţile posibile în joc
+(define ABILITIES (list fast-ability slow-ability))
+
+;; ups, nu m am gandit ca mai multe constante se pot modifica :)
+(define get-variables 'your-code-here)
+(define get-variables-gravity 'your-code-here)
+(define get-variables-momentum 'your-code-here)
+(define get-variables-scroll-speed 'your-code-here)
+
+
+(define-struct reprezentare_intermediara (vizibile active) #:transparent)
+; Întoarce abilităţile din stare, cu o reprezentare
+; intermediară care trebuie să conțină două liste:
+;  - lista abilităţilor vizibile (încarcate în scenă dar nu neaparat vizibile pe ecran).
+;  - lista abilităţilor activate (cu care pasărea a avut o coloziune).
+(define (get-abilities _state) (state-reprezentare_intermediara _state))
+
+; Întoarce abilităţile vizibile din reprezentarea intermediară.
+(define (get-abilities-visible _reprezentare_intermediara) (reprezentare_intermediara-vizibile _reprezentare_intermediara))
+
+; Întoarce abilităţile active din reprezentarea intermediară.
+(define (get-abilities-active _reprezentare_intermediara) (reprezentare_intermediara-active _reprezentare_intermediara))
+
+; Șterge din reprezentarea abilităţilor vizibile pe cele care nu mai sunt vizibile.
+; echivalent cu clean-pipes.
+(define (clean-abilities _abilities) ;; presupun ca imi da lista cu reprezentarea intermediara
+  (struct-copy reprezentare_intermediara _abilities
+               [vizibile (filter (λ (x) (> (posn-x (get-ability-pos x)) -20))(get-abilities-visible _abilities))]))
+;; pare ca imaginea abilitatii e de 40 pe 40
+
+
+; Muta abilităţile vizibile spre stanga.
+; echivalent cu move-pipes.
+(define (move-abilities _abilities scroll-speed) ;; presupun ca imi da lista cu reprezentarea intermediara
+	(struct-copy reprezentare_intermediara _abilities
+                     [vizibile (map (λ (_ability)
+                                      (struct-copy ability _ability
+                                                   [posn (make-posn (- (posn-x (get-ability-pos _ability)) scroll-speed)
+                                                                    (posn-y (get-ability-pos _ability)))
+                                                         ]
+                                                   )
+                                      ) (get-abilities-visible _abilities))]))
+
+
+; Scurge timpul pentru abilităţile activate și le sterge pe cele care au expirat.
+; Puteți să va folosiți de variabila globală fps.
+(define (time-counter _abilities) ;; presupun ca imi da lista cu reprezentarea intermediara
+  (struct-copy reprezentare_intermediara _abilities
+               [active
+                (filter (λ (_ability) (> (get-ability-time _ability) 0))
+                        (map (λ (_ability)
+                               (struct-copy ability _ability
+                                            [time (- (get-ability-time _ability) (/ 1 fps))]))
+                             (get-abilities-active _abilities))
+                        )
+                ]
+               )
+  )
+
+; Generează următoarele abilitați vizibile.
+; *Atentie* La orice moment pe scena trebuie să fie exact DISPLAYED_ABILITIES
+; abilităţi vizibile
+; Folosiți funcția fill-abilities din abilities.rkt cât si cele scrise mai sus:
+; move-abilities, clean-abilities, time-counter, etc..
+
+;; sa imi trag una ca nu orimesc structura aia dubioasa (reprezentare_intermediara) aici
+;; ca sa nu stau sa schimb codul de sus momentan, o sa fac structura temporar, stiu ca e risipa de memorie :/
+(define (next-abilities-visible _visible scroll-speed)
+  (fill-abilities 
+   (get-abilities-visible (clean-abilities (move-abilities (reprezentare_intermediara _visible '()) scroll-speed)))
+   DISPLAYED_ABILITIES
+   ABILITIES))
+   
+; Generează structura intermediară cu abilități.
+; Observați ca nu există next-abilities-active aceastea sunt acele abilităti
+; întoarse next-abilities-visible care au o coliziune cu pasărea.
+; Puteti folosi `filer`/`filter-not` ca sa verificați ce abilităti au și abilitați
+; nu au coliziuni cu pasărea sau puteti folosi `partition`
+
+;; mersi de pontul cu filter-not, arata mai frumos codul asa decat sa neg functia check_colision_ability_bird
+(define (next-abilities _abilities _bird scroll-speed)
+  (let* (
+         [visible_moved (next-abilities-visible (get-abilities-visible _abilities) scroll-speed)]
+         [active_old (get-abilities-active (time-counter _abilities))] ;; aici facem si trecutul timpului pt abilitatile deja active
+         [visible_new (filter-not (λ (_ability) (check_colision_ability_bird _ability _bird)) visible_moved)]
+         [active_new (append active_old (filter (λ (_ability) (check_colision_ability_bird _ability _bird)) visible_moved))]
+         )
+    (reprezentare_intermediara visible_new active_new)
+    ))
+
+(define check_colision_ability_bird
+  (λ (_ability _bird)
+    (check-collision-rectangles
+     (make-posn (bird_pos-x _bird) (bird_pos-y _bird))
+     (make-posn (+ (bird_pos-x _bird) bird-width) (+ (bird_pos-y _bird) bird-height))
+     (make-posn (- (posn-x (get-ability-pos _ability)) 20) (- (posn-y (get-ability-pos _ability)) 20))
+     (make-posn (+ (posn-x (get-ability-pos _ability)) 20) (+ (posn-y (get-ability-pos _ability)) 20))
+                       )))
+                               
+; Dând-use variabilele actuale și abilitațile calculați care vor fi
+; variabile finale folosite în joc
+; Folositi compose-abilities
+; Atenție când apelați `next-variables` în next-state dați ca paremetru
+; initial-variables și nu variabilele aflate deja în stare
+; In felul acesta atunci când
+;; atunci cand ce? ce??? ma simt mai rau decat la finalul primului sezon din "The witcher"... cliffhanger-ul ma omoara XDD
+(define (next-variables _variables _abilities)
+  ((compose-abilities (get-abilities-active _abilities)) _variables))
+
+
+; Folosind `place-image/place-images` va poziționa abilităţile vizibile la ability pos.
+(define (place-visible-abilities _abilities _scene)
+	(foldr
+         (λ (_ability acc) (place-image (get-ability-image _ability)
+                                        (posn-x (get-ability-pos _ability))
+                                        (posn-y (get-ability-pos _ability))
+                                        acc)
+           )
+         _scene
+         (get-abilities-visible _abilities)))
+
+; Folosind `place-image/place-images` va poziționa abilităţile active
+; în partea de sus a ecranului lângă scor.
+; Imaginiile vor scalate cu un factor de 0.75 și așezate plecând
+; de la ability-posn (constantă globală) cu spații de 50 de px.
+; Imaginea cu indexul i va fi așezată la (ability-posn.x - 50*i, ability-posn.y)
+(define (place-active-abilities _abilities _scene)
+  (place-images
+   (foldr (λ (_ability acc) (cons (scale 0.75 (get-ability-image _ability)) acc))
+          '()
+          (get-abilities-active _abilities))
+   (foldr (λ (_ability acc) (cons (make-posn (- (posn-x abilities-posn) (* 50 (length acc))) (posn-y abilities-posn)) acc))
+         '()
+         (get-abilities-active _abilities))
+   _scene))
+
+(module+ main
+	(big-bang (get-initial-state)
+	 [on-tick next-state (/ 1.0 fps)]
+	 [to-draw draw-frame]
+	 [on-key change]
+	 [stop-when invalid-state?]
+	 [close-on-stop #t]
+	 [record? #f]))
